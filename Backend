@@ -1,1 +1,366 @@
+//server.js
+const express = require('express');
+const cors = require('cors');
+const dotenv = require('dotenv');
+const connectDB = require('./config/db');
+
+const authRoutes = require('./routes/authRoutes');
+const employeeRoutes = require('./routes/employeeRoutes');
+
+const User = require('./models/User');
+const bcrypt = require('bcryptjs');
+
+// Load environment variables
+dotenv.config();
+
+// Initialize express app
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/employees', employeeRoutes);
+
+// Start the server only after DB connects
+const PORT = process.env.PORT || 5000;
+
+const startServer = async () => {
+  try {
+    await connectDB();
+
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+
+    // Create admin only after DB is ready
+    const existing = await User.findOne({ email: 'admin@gmail.com' });
+    if (!existing) {
+      const hashedPassword = await bcrypt.hash('admin123', 10);
+      await User.create({ email: 'admin@gmail.com', password: hashedPassword });
+      console.log('Admin user created');
+    } else {
+      console.log('Admin already exists');
+    }
+  } catch (err) {
+    console.error('Failed to start server:', err.message);
+  }
+};
+
+startServer();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//db.js
+const mongoose = require('mongoose');
+
+const connectDB = async () => {
+  try {
+    const conn = await mongoose.connect(process.env.MONGO_URI);
+    console.log(`MongoDB connected: ${conn.connection.host}`);
+  } catch (error) {
+    console.error('MongoDB connection error:', error);
+    process.exit(1);
+  }
+};
+
+module.exports = connectDB;
+
+
+
+
+
+
+
+
+
+
+
+
+//authController.js
+const User = require('../models/User');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+
+exports.loginUser = async (req, res) => {
+  const { email, password } = req.body;
+
+  try {
+    const user = await User.findOne({ email });
+    if (!user)
+      return res.status(400).json({ message: 'User not found' });
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch)
+      return res.status(400).json({ message: 'Incorrect password' });
+
+    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
+      expiresIn: '1h',
+    });
+
+    res.json({ token });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+
+
+
+
+
+
+
+//employeeController.js
+const Employee = require('../models/Employee');
+
+// Get all employees
+exports.getAllEmployees = async (req, res) => {
+  try {
+    const employees = await Employee.find();
+    res.json(employees);
+  } catch (err) {
+    res.status(500).json({ message: 'Server error while fetching employees' });
+  }
+};
+
+// Add a new employee
+exports.addEmployee = async (req, res) => {
+  const { name, designation, salary } = req.body;
+
+  // Validation: No numbers in name
+  if (!name || /\d/.test(name)) {
+    return res.status(400).json({ message: 'Name should not contain numbers and must be provided' });
+  }
+
+  // Validation: Salary should be a number
+  if (salary === undefined || isNaN(salary)) {
+    return res.status(400).json({ message: 'Salary must be a number' });
+  }
+
+  try {
+    const newEmp = new Employee({ name, designation, salary });
+    await newEmp.save();
+    res.json({ message: 'Employee added successfully' });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error while adding employee' });
+  }
+};
+
+// Edit an employee
+exports.editEmployee = async (req, res) => {
+  const { name, designation, salary } = req.body;
+
+  // Validation: No numbers in name
+  if (!name || /\d/.test(name)) {
+    return res.status(400).json({ message: 'Name should not contain numbers and must be provided' });
+  }
+
+  // Validation: Salary should be a number
+  if (salary === undefined || isNaN(salary)) {
+    return res.status(400).json({ message: 'Salary must be a number' });
+  }
+
+  try {
+    await Employee.findByIdAndUpdate(req.params.id, { name, designation, salary });
+    res.json({ message: 'Employee updated successfully' });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error while updating employee' });
+  }
+};
+
+//Update employee (used by new route /update/:id)
+exports.updateEmployee = async (req, res) => {
+  const { name, designation, salary } = req.body;
+
+  // Validation
+  if (!name || /\d/.test(name)) {
+    return res.status(400).json({ message: 'Name must not contain numbers and must be provided' });
+  }
+
+  if (salary === undefined || isNaN(salary)) {
+    return res.status(400).json({ message: 'Salary must be a number' });
+  }
+
+  try {
+    const updated = await Employee.findByIdAndUpdate(req.params.id, { name, designation, salary });
+    if (!updated) {
+      return res.status(404).json({ message: 'Employee not found' });
+    }
+    res.json({ message: 'Employee updated successfully' });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error while updating employee', error: err.message });
+  }
+};
+
+// Delete an employee
+exports.deleteEmployee = async (req, res) => {
+  try {
+    await Employee.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Employee deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error while deleting employee' });
+  }
+};
+
+
+
+
+
+
+
+
+
+
+
+
+//authMiddleware.js
+const jwt = require('jsonwebtoken');
+
+const authMiddleware = (req, res, next) => {
+  const token = req.header('Authorization');
+
+  if (!token) {
+    return res.status(401).json({ message: 'No token, access denied' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded.userId;
+    next();
+  } catch (err) {
+    res.status(401).json({ message: 'Invalid token' });
+  }
+};
+
+module.exports = authMiddleware;
+
+
+
+
+
+
+
+
+
+
+
+//Employee.js
+const mongoose = require('mongoose');
+
+const employeeSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: [true, 'Name is required'],
+    match: [/^[a-zA-Z\s]+$/, 'Name must contain only letters']
+  },
+  designation: {
+    type: String,
+    required: [true, 'Designation is required']
+  },
+  salary: {
+    type: Number,
+    required: [true, 'Salary is required'],
+    min: [0, 'Salary must be a positive number']
+  }
+}, { timestamps: true });
+
+module.exports = mongoose.model('Employee', employeeSchema);
+
+
+
+
+
+
+
+
+
+
+
+//User.js
+const mongoose = require('mongoose');
+
+const userSchema = new mongoose.Schema({
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true }
+});
+
+module.exports = mongoose.model('User', userSchema);
+
+
+
+
+
+
+
+
+
+
+
+//authRoutes.js
+const express = require('express');
+const { loginUser } = require('../controllers/authController');
+
+const router = express.Router();
+
+router.post('/login', loginUser);
+
+module.exports = router;
+
+
+
+
+
+
+
+
+
+//employeeRoutes.js
+const express = require('express');
+const {
+  getAllEmployees,
+  addEmployee,
+  editEmployee,
+  deleteEmployee,
+  updateEmployee
+} = require('../controllers/employeeController');
+
+const authMiddleware = require('../middleware/authMiddleware');
+const router = express.Router();
+
+// Routes
+router.get('/', authMiddleware, getAllEmployees);
+router.post('/add', authMiddleware, addEmployee);
+router.put('/edit/:id', authMiddleware, editEmployee);
+router.put('/update/:id', authMiddleware, updateEmployee);
+router.delete('/delete/:id', authMiddleware, deleteEmployee);
+
+module.exports = router;
+
+
+
+
+
+
+
+
+
+
+
+
+//.env
+MONGO_URI=mongodb+srv://admin:admin123@cluster0.kuymujg.mongodb.net/employeeDB?retryWrites=true&w=majority&appName=Cluster0
+JWT_SECRET=mysecretkey123
+PORT=5000
 
