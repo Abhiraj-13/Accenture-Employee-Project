@@ -1,1 +1,354 @@
+//login.html
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Login</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <h2>Login</h2>
+    <form id="loginForm">
+      <input type="email" id="email" placeholder="Email" required>
+      <input type="password" id="password" placeholder="Password" required>
+      <button type="submit">Login</button>
+    </form>
+    <p id="loginMsg" class="message"></p>
+  </div>
 
+  <script src="script.js"></script>
+</body>
+</html>
+
+
+
+
+
+
+//dashboard.html
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Employee Management</h1>
+
+    <!-- Add Employee Form -->
+    <div id="addForm" class="form-popup" style="display: block;">
+      <h3>Add Employee</h3>
+      <input id="empName" placeholder="Name" required>
+      <input id="empDesignation" placeholder="Designation" required>
+      <input id="empSalary" type="number" placeholder="Salary" required>
+      <button onclick="addEmployee()">Add</button>
+    </div>
+
+    <!-- View Employees -->
+    <button onclick="location.href='viewEmployees.html'">View Employees</button>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
+
+
+
+
+
+
+//viewEmployees.html
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Employees</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Employees</h1>
+
+    <table id="empTable"></table>
+
+    <button onclick="location.href='dashboard.html'">Back to Dashboard</button>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
+
+
+
+
+
+//script.js
+const apiBase = 'http://localhost:5000/api';
+
+document.addEventListener('DOMContentLoaded', () => {
+  if (document.getElementById('loginForm')) {
+    document.getElementById('loginForm').addEventListener('submit', login);
+  }
+
+  if (window.location.pathname.includes('viewEmployees.html')) {
+    getEmployees();
+  }
+});
+
+function login(e) {
+  e.preventDefault();
+  const email = document.getElementById('email').value;
+  const password = document.getElementById('password').value;
+
+  fetch(`${apiBase}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password })
+  })
+    .then(res => res.json())
+    .then(data => {
+      if (data.token) {
+        localStorage.setItem('token', data.token);
+        window.location.href = 'dashboard.html';
+      } else {
+        document.getElementById('loginMsg').innerText = data.message;
+      }
+    })
+    .catch(err => alert('Login failed: ' + err.message));
+}
+
+function showAddForm() {
+  const form = document.getElementById('addForm');
+  form.style.display = (form.style.display === 'block') ? 'none' : 'block';
+}
+
+function addEmployee() {
+  const name = document.getElementById('empName').value.trim();
+  const designation = document.getElementById('empDesignation').value.trim();
+  const salary = document.getElementById('empSalary').value.trim();
+  const token = localStorage.getItem('token');
+
+  if (!/^[a-zA-Z\s]+$/.test(name)) {
+    alert('Name must contain only letters.');
+    return;
+  }
+
+  if (isNaN(salary) || salary <= 0) {
+    alert('Salary must be a valid number.');
+    return;
+  }
+
+  try {
+    fetch(`${apiBase}/employees/add`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': token
+      },
+      body: JSON.stringify({ name, designation, salary })
+    })
+      .then(res => res.json())
+      .then(data => {
+        alert(data.message);
+        document.getElementById('empName').value = '';
+        document.getElementById('empDesignation').value = '';
+        document.getElementById('empSalary').value = '';
+      });
+  } catch (err) {
+    alert('Failed to add employee: ' + err.message);
+  }
+}
+
+function getEmployees() {
+  const token = localStorage.getItem('token');
+  fetch(`${apiBase}/employees`, {
+    headers: { 'Authorization': token }
+  })
+    .then(res => res.json())
+    .then(data => {
+      const table = document.getElementById('empTable');
+      table.innerHTML = '<tr><th>Name</th><th>Designation</th><th>Salary</th><th>Actions</th></tr>';
+      data.forEach(emp => {
+        table.innerHTML += `
+          <tr>
+            <td>${emp.name}</td>
+            <td>${emp.designation}</td>
+            <td>${emp.salary}</td>
+            <td>
+              <div class="action-buttons">
+              <button class="delete-btn" onclick="deleteEmployee('${emp._id}')">Delete</button>
+              <button class="update-btn" onclick="updateEmployeePrompt('${emp._id}', '${emp.name}', '${emp.designation}', '${emp.salary}')">Update</button>
+              </div>
+              
+            </td>
+          </tr>
+        `;
+      });
+    })
+    .catch(err => alert('Failed to fetch employees: ' + err.message));
+}
+
+function deleteEmployee(id) {
+  const token = localStorage.getItem('token');
+  fetch(`${apiBase}/employees/delete/${id}`, {
+    method: 'DELETE',
+    headers: { 'Authorization': token }
+  })
+    .then(res => res.json())
+    .then(data => {
+      alert(data.message);
+      location.reload();
+    })
+    .catch(err => alert('Failed to delete employee: ' + err.message));
+}
+
+function updateEmployeePrompt(id, name, designation, salary) {
+  const newName = prompt('Update Name:', name);
+  const newDesignation = prompt('Update Designation:', designation);
+  const newSalary = prompt('Update Salary:', salary);
+
+  if (!newName || !/^[a-zA-Z\s]+$/.test(newName)) {
+    return alert('Name must contain only letters.');
+  }
+
+  if (!newSalary || isNaN(newSalary) || newSalary <= 0) {
+    return alert('Salary must be a valid number.');
+  }
+
+  const token = localStorage.getItem('token');
+  fetch(`${apiBase}/employees/update/${id}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': token
+    },
+    body: JSON.stringify({
+      name: newName,
+      designation: newDesignation,
+      salary: newSalary
+    })
+  })
+    .then(res => res.json())
+    .then(data => {
+      alert(data.message);
+      location.reload();
+    })
+    .catch(err => alert('Update failed: ' + err.message));
+}
+
+
+
+
+
+
+
+
+
+
+//style.css
+body {
+  font-family: Arial, sans-serif;
+  background: #f5f5f5;
+  margin: 0;
+  padding: 0;
+}
+
+.container {
+  width: 90%;
+  max-width: 800px;
+  margin: 60px auto;
+  background: #fff;
+  padding: 25px;
+  border-radius: 10px;
+  box-shadow: 0 0 10px rgba(0,0,0,0.2);
+  text-align: center;
+}
+
+
+h1, h2, h3 {
+  color: #333;
+}
+
+input {
+  width: 100%;
+  padding: 12px;
+  margin: 10px 0;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+}
+
+button {
+  width: 100%;
+  padding: 12px;
+  margin: 10px 0;
+  border: none;
+  background-color: #28a745;
+  color: white;
+  font-weight: bold;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+button:hover {
+  background-color: #218838;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+}
+
+th, td {
+  padding: 12px;
+  border: 1px solid #ddd;
+}
+
+th {
+  background-color: #28a745;
+  color: white;
+}
+
+.form-popup {
+  display: none;
+  margin-top: 20px;
+}
+
+.message {
+  color: red;
+}
+
+
+button.update-btn {
+  background-color: #007bff;
+}
+
+button.update-btn:hover {
+  background-color: #0069d9;
+}
+
+button.delete-btn {
+  background-color: #dc3545;
+}
+
+button.delete-btn:hover {
+  background-color: #c82333;
+}
+
+td button {
+  margin-right: 8px;
+  display: inline-block;
+}
+
+td .action-buttons {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+td .action-buttons button {
+  padding: 6px 10px;
+  font-size: 14px;
+  width: auto;
+}
